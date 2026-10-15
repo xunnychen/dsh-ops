@@ -3,7 +3,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import Sandbox from '@deepseek-ai/dsh-sandbox-local'
 import Subprocess from '@deepseek-ai/dsh-subprocess-local'
-import { assert, test, report, withTempDir } from './lib/harness.mjs'
+import { assert, test, report, withTempDir, PACKAGE_ROOT } from './lib/harness.mjs'
 import { bootHost, shutdown } from './lib/host.mjs'
 import { prepareWorkspace, mountWorkspacePreparation } from '../lib/workspace-preparation.js'
 import { invoke as fileCall } from '../lib/file/worker.js'
@@ -36,8 +36,16 @@ await test('preparation coalesces one trusted workspace and retries only failed 
 })
 await test('owned Modify-only workspace starts real DSH sandbox; three modes and explicit denials', async () => {
   await withTempDir('permission-matrix',async root => {
-    const outside=path.join(path.dirname(root),'permission-outside-'+path.basename(root))
-    fs.mkdirSync(outside); fs.writeFileSync(path.join(outside,'keep.txt'),'outside')
+    // Outside the workspace AND outside every root `workspace-write` grants.
+    // The DSH sandbox allows the workspace root plus the platform temp area
+    // (`/tmp` and `os.tmpdir()` — see `writableRoots` in
+    // `@deepseek-ai/dsh-sandbox`), and this suite's entire tree lives under
+    // `os.tmpdir()`, so a SIBLING of the workspace is inside that grant: a write
+    // there succeeds and proves nothing about the boundary. A `.tmp-` scratch
+    // tree in the checkout is outside all of them on every platform, and
+    // `.gitignore` already covers the name.
+    const outside=fs.mkdtempSync(path.join(PACKAGE_ROOT,'.tmp-permission-outside-'))
+    fs.writeFileSync(path.join(outside,'keep.txt'),'outside')
     fs.writeFileSync(path.join(root,'data.txt'),'before')
     // Strip broad inherited grants only on this test-owned directory. Recreate
     // the actual reported prerequisite: owner + Modify, no WRITE_OWNER.

@@ -385,6 +385,11 @@ await test('a package the registry never carried and a broken tree get different
     env: { DSH_HOME: TEST_HOME, PATH: '' },
     platform: process.platform,
     arch: process.arch,
+    // The subject is the remedy the ladder prints when nothing the deployment
+    // carries can supply bash. macOS owns a sealed `/bin/bash`, and that rung
+    // answers BEFORE any of this advice is reached, so it is switched off here —
+    // exactly as the sibling case above already does.
+    osBash: null,
   }).bash.detail
 
   let missing
@@ -479,9 +484,13 @@ await test('the pin table names one upstream release per shell, and nothing is s
   assert.equal(bash?.extractTo, '.')
   assert.equal(bash?.executableRelativePath, 'bin/bash.exe')
   // The one published layout each archive has, and the store path both sides of
-  // the L3 contract compute.
-  assert.equal(provisionedShellVersionDir({ kind: 'pwsh', version: '7.6.6', env: { DSH_HOME: 'C:\\home' } }),
-    path.join('C:\\home', 'dsh-ops', 'shells', 'pwsh', '7.6.6'))
+  // the L3 contract compute: `<DSH_HOME>/dsh-ops/shells/<kind>/<version>`. The
+  // DSH_HOME literal is host-shaped because `path.resolve` is what turns a
+  // configured home into an absolute one — a Windows spelling is not an absolute
+  // path on a POSIX host, so the assertion follows the host's own rules.
+  const storeHome = process.platform === 'win32' ? 'C:\\home' : '/home/dsh-ops-test'
+  assert.equal(provisionedShellVersionDir({ kind: 'pwsh', version: '7.6.6', env: { DSH_HOME: storeHome } }),
+    path.join(storeHome, 'dsh-ops', 'shells', 'pwsh', '7.6.6'))
 })
 
 await test('a platform the pins do not cover has no pin, and the store still resolves layout-only', () => {

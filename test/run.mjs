@@ -19,7 +19,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -63,7 +63,11 @@ const requireRuntime = process.env.DSH_OPS_REQUIRE_RUNTIME === '1'
 const started = Date.now()
 
 for (const suite of selected) {
-  const home = mkdtempSync(path.join(tmpdir(), 'dsh-ops-test-home-'))
+  // Canonical, not merely created: on macOS `tmpdir()` itself is a symlinked
+  // path (`/var` → `/private/var`) and every suite that hands its temporary
+  // workspace to a native worker has to hand it the resolved name. See the
+  // note on `canonical()` in `test/lib/harness.mjs`.
+  const home = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'dsh-ops-test-home-')))
   const label = path.basename(suite)
   console.log(`\n=== ${label}`)
   const child = spawn(process.execPath, [suite], {

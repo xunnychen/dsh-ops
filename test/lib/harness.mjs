@@ -15,7 +15,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,8 +23,32 @@ import { fileURLToPath } from 'node:url'
 /** The repository root, resolved from this file (`test/lib/`). */
 export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
+/**
+ * Resolve one path through every symbolic link, or answer `undefined`.
+ *
+ * macOS hands out temporary directories under `/var/folders/…`, and `/var` is a
+ * link to `/private/var`. Every native worker this plugin hosts refuses to
+ * traverse a link (`Workspace root must not resolve through a junction or
+ * symlink`, `Links, reparse points and special objects are not traversed`), and
+ * that refusal is the security boundary, not a bug to route around. So the
+ * suites must seed workspaces under the RESOLVED name: a suite that used the
+ * unresolved one would be asserting about a path the plugin is designed to
+ * reject, and its failures would say nothing about the plugin.
+ * @param {string} value - the path to canonicalise.
+ * @returns {string|undefined} the canonical path, or undefined when it cannot be resolved.
+ */
+function canonical(value) {
+  try {
+    return realpathSync.native(value)
+  } catch {
+    return undefined
+  }
+}
+
 const home = process.env.DSH_HOME ?? ''
-if (home === '' || !path.resolve(home).startsWith(path.resolve(tmpdir()))) {
+const realTmp = canonical(tmpdir())
+const realHome = home === '' ? undefined : canonical(path.resolve(home))
+if (realHome === undefined || realTmp === undefined || !realHome.startsWith(realTmp)) {
   console.error(
     'dsh-ops test: refusing to run with DSH_HOME pointing outside the temporary directory '
     + `(${home === '' ? 'unset' : home}). Run the suites through \`node test/run.mjs\`, which `
@@ -33,8 +57,8 @@ if (home === '' || !path.resolve(home).startsWith(path.resolve(tmpdir()))) {
   process.exit(2)
 }
 
-/** The throwaway DSH home this suite may write into. */
-export const TEST_HOME = path.resolve(home)
+/** The throwaway DSH home this suite may write into, with every link resolved. */
+export const TEST_HOME = realHome
 
 let failures = 0
 const names = []
@@ -62,12 +86,18 @@ export { assert }
 /**
  * Create a directory under the runner's temporary home that is removed when the
  * body resolves.
+ *
+ * The directory is canonicalised even though `TEST_HOME` already is: a suite
+ * hands this path straight to a native worker as its workspace root, and a
+ * platform whose temporary root is itself reached through a link (macOS:
+ * `/var` → `/private/var`) would otherwise have every one of those calls
+ * refused for a reason that has nothing to do with what the suite is testing.
  * @param {string} prefix - directory-name infix, for readable leftovers.
  * @param {(dir: string) => unknown | Promise<unknown>} body - the work.
  * @returns {Promise<unknown>} whatever the body returned.
  */
 export async function withTempDir(prefix, body) {
-  const dir = mkdtempSync(path.join(TEST_HOME, `${prefix}-`))
+  const dir = realpathSync.native(mkdtempSync(path.join(TEST_HOME, `${prefix}-`)))
   try {
     return await body(dir)
   } finally {

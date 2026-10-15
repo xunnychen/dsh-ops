@@ -12,7 +12,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import * as ptc from '../lib/ptc/index.js'
 import { definition } from '../lib/ptc/contract.js'
-import { resolveWorker } from '../lib/ptc/runtime.js'
+import { PACKAGE_ROOT, resolveWorker } from '../lib/ptc/runtime.js'
 import Sandbox from '@deepseek-ai/dsh-sandbox-local'
 import Subprocess from '@deepseek-ai/dsh-subprocess-local'
 import { invoke } from '../lib/ptc/worker.js'
@@ -208,12 +208,19 @@ try {
   fs.copyFileSync('package.json',path.join(isolatedPackage,'package.json'))
   const runtimeDir = path.resolve('runtime',`${process.platform}-${process.arch}`)
   fs.cpSync(runtimeDir,path.join(isolatedPackage,'runtime',`${process.platform}-${process.arch}`),{recursive:true})
-  assert.throws(() => resolveWorker({}, {platform:'linux',arch:'x64'}), /Windows x64 only/)
-  assert.throws(() => resolveWorker({}, {platform:'win32',arch:'arm64'}), /Windows x64 only/)
+  assert.throws(() => resolveWorker({}, {platform:'linux',arch:'x64'}), /supports Windows x64 and macOS/)
+  assert.throws(() => resolveWorker({}, {platform:'win32',arch:'arm64'}), /supports Windows x64 and macOS/)
   assert.ok(resolveWorker({}, {packageRoot:isolatedPackage}).startsWith(isolatedPackage))
   console.log('ok: installed runtime resolves without binaryPath or source build tree')
   const real = new Context(); real.logger.level = 0
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(),'ops-outside-'))
+  // Outside the workspace AND outside every root `workspace-write` grants. The
+  // DSH sandbox allows the workspace root plus the platform temp area (`/tmp`
+  // and `os.tmpdir()` — `writableRoots` in `@deepseek-ai/dsh-sandbox`), so a
+  // fixture made under `os.tmpdir()` is INSIDE that grant: the removal below
+  // would be permitted and the denial assertion would be proving nothing. A
+  // `.tmp-*` scratch tree in the checkout is outside all of them, and
+  // `.gitignore` already covers the name.
+  const outside = fs.mkdtempSync(path.join(PACKAGE_ROOT,'.tmp-ops-outside-'))
   const external = path.join(outside,'protected.txt'); fs.writeFileSync(external,'keep')
   try {
     await real.plugin(Subprocess)
@@ -231,7 +238,14 @@ try {
     assert.deepEqual(fs.readdirSync(path.join(dir,'.dsh-ops')).sort(),beforeStore)
     agent.session.mode='workspace-write'
     const denied=await call('batch',{root:outside,action:'run',operations:[{op:'remove',path:'protected.txt'}]})
-    assert.equal(denied.status,'error',JSON.stringify(denied)); assert.ok(fs.existsSync(external))
+    // Denied — but WHICH layer answers first is a platform fact. The plugin's own
+    // preflight refuses a root outside the authorized workspace and reports it as
+    // `rejected`; where the platform grant is narrower than that preflight the
+    // request instead reaches the worker, whose sandbox refusal arrives as
+    // `error`. Both carry POLICY_DENIED, and neither may touch the file.
+    assert.notEqual(denied.status,'completed',JSON.stringify(denied))
+    assert.equal(denied.error.code,'POLICY_DENIED',JSON.stringify(denied))
+    assert.ok(fs.existsSync(external))
     agent.session.mode='danger-full-access'
     const unrestricted=await call('batch',{root:outside,action:'run',operations:[{op:'remove',path:'protected.txt'}]})
     assert.equal(unrestricted.status,'completed',JSON.stringify(unrestricted)); assert.equal(fs.existsSync(external),false)
