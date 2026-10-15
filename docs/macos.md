@@ -48,10 +48,11 @@ GitHub Actions `macOS` 工作流双架构绿（run 38691638696：darwin-arm64 5m
 `writableRoots()`（`node_modules/@deepseek-ai/dsh-sandbox/lib/index.js`）在 `workspace-write` 下把 `policy.workspaceRoot`、`/tmp`、`os.tmpdir()` 去重授权；Windows 走的是每工作区 SID 加随机私有临时目录，所以「工作区的兄弟目录」只在 Windows 落在授权外。⇒ 在 macOS 上，证明边界的夹具必须落在授权之外（仓库根的 `.tmp-*` 临时树），否则断言恒真。
 
 **3.2 符号链接路径一律明确拒绝，不是缺陷。**
-`/tmp` 与 `os.tmpdir()` 都是链接（`/private/tmp`、`/private/var/…`）。原生 worker 报 `POLICY_DENIED` 并给出可读理由，而不是静默改写路径或静默失败——这是安全边界。会话工作区放在 `/tmp` 下会得到 3.2 表格里那条报错；用 `realpath` 后的路径即可。
+`/tmp` 与 `os.tmpdir()` 都是链接（`/private/tmp`、`/private/var/…`）。原生 worker 报 `POLICY_DENIED` 并给出可读理由，而不是静默改写路径或静默失败——这是安全边界。会话工作区放在 `/tmp` 下会得到第 2 节表格里那条报错；用 `realpath` 后的路径即可。
 
 **3.3 桌面版 CLI 启动器可能没有执行位。**
 本机 `/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh` 是 mode 644（同目录留有 `dsh.dsh-purge.bak`），直接执行报 `Permission denied`；`sh "<该路径>" …` 正常运行。`lib/profile-install.js` 的 `desktopCliCandidates()` 只按「文件存在」挑选命令，随后直接 `spawnSync`，在同样情况下会拿到 `EACCES`。本机实测即用 `sh` 绕过，未改产品代码。
+
 ## 各组件在 macOS 上的情况
 
 | 组件 | macOS |
