@@ -34,6 +34,7 @@ import {
   bashToolDescription,
   bundledShell,
   bundledShellPath,
+  osOwnedBash,
   provisionedShell,
   provisionedShellVersionDir,
   publishShellTools,
@@ -241,6 +242,7 @@ await test('a bundled shell is not a system shell, so it survives allowSystemShe
       env: { DSH_HOME: TEST_HOME, PATH: onlyPath(path.dirname(bundled)) },
       platform: process.platform,
       arch: process.arch,
+      osBash: null,
     })
     assert.equal(withoutBundle.bash.available, false)
     assert.equal(withoutBundle.bash.source, 'disabled')
@@ -358,6 +360,7 @@ await test('the package-missing reason reaches the rung it belongs to', async ()
       env: { DSH_HOME: TEST_HOME, PATH: '' },
       platform: process.platform,
       arch: process.arch,
+      osBash: null,
     })
     assert.equal(resolved.bash.available, false)
     assert.equal(resolved.bash.source, 'disabled')
@@ -1432,12 +1435,28 @@ await test('the L3 override is Windows-gated like the row it targets', () => {
   }
 })
 
+await test('macOS uses its sealed /bin/bash without the system fallback, and only macOS', async () => {
+  await withTempDir('shells-os-bash', dir => {
+    const osBash = makeExecutable(path.join(dir, 'sealed', 'bash'))
+    const onPath = makeExecutable(path.join(dir, 'onpath', 'bash'))
+    const base = { bundleRoot: path.join(dir, 'plugin'), env: { DSH_HOME: TEST_HOME, PATH: path.dirname(onPath) }, platform: 'darwin', arch: 'arm64', osBash }
+    const confined = resolveShells(config({ allowSystemShellFallback: false }), base).bash
+    assert.equal(confined.source, 'os')
+    assert.equal(confined.file, osBash)
+    // An explicit system opt-in still prefers PATH (e.g. Homebrew bash 5) over the OS copy.
+    assert.equal(resolveShells(config({ allowSystemShellFallback: true }), base).bash.file, onPath)
+    assert.equal(osOwnedBash('darwin'), '/bin/bash')
+    assert.equal(osOwnedBash('linux'), undefined)
+    assert.equal(osOwnedBash('win32'), undefined)
+  })
+})
+
 await test('system discovery is opt-in even when PATH and well-known installs exist', async () => {
   await withTempDir('shells-default-confined', dir => {
     const system = makeExecutable(path.join(dir, 'bin', process.platform === 'win32' ? 'bash.exe' : 'bash'))
     const programFiles = path.join(dir, 'Program Files')
     makeExecutable(path.join(programFiles, 'Git', 'bin', 'bash.exe'))
-    const options = { bundleRoot: path.join(dir, 'plugin'), env: { DSH_HOME: TEST_HOME, PATH: path.dirname(system), ProgramFiles: programFiles } }
+    const options = { bundleRoot: path.join(dir, 'plugin'), env: { DSH_HOME: TEST_HOME, PATH: path.dirname(system), ProgramFiles: programFiles }, osBash: null }
     for (const raw of [resolveConfig({}), {}, undefined]) {
       const result = resolveShells(raw, options).bash
       assert.equal(result.available, false)

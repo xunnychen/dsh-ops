@@ -8,7 +8,7 @@ attention wasted on repeated PowerShell errors.
 
 > tips: "ops" here is short for the general sense of operations — the plugin sits at the base layer between dsh and system / code / file operations. It is not an operations (DevOps) plugin.
 
-**0.3.0 supports Windows x64 only**, targeting DSH `0.2.0-rc.2`. The independent Rust file/PTC worker is included; PTC remains opt-in. Linux/macOS/ARM64 are future work, not release claims. See [Native PTC](docs/native-ptc.md).
+**0.3.0 supports Windows x64 only**, targeting DSH `0.2.0-rc.2`. The independent Rust file/PTC worker is included; PTC remains opt-in. Linux/macOS/ARM64 are future work, not release claims (experimental macOS: [docs/macos.md](docs/macos.md)). See [Native PTC](docs/native-ptc.md).
 
 ---
 

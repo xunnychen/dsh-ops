@@ -1,0 +1,85 @@
+name: macOS
+
+# Builds and gates the plugin on macOS. Unlike ci.yml this one runs on push:
+# the macOS port has no other on-platform evidence.
+#
+# Artifacts per architecture:
+#   dsh-ops-<version>.tgz   npm pack of the plugin with runtime/darwin-<arch>/ staged
+#                           (the PTC worker); install it into a DSH profile
+#   fastctx                 the file component's runtime; install it with
+#                           `npx dsh-ops provision --from <path>/fastctx`
+#
+# What this does NOT prove: real DSH Seatbelt confinement. The gate's sandbox
+# provider is simulated (see docs/native-ptc.md); denial behaviour has to be
+# checked on a Mac against the real desktop app.
+on:
+  push:
+    branches: [macos-support]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Build and gate (darwin-${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-latest, arch: arm64 }
+          - { runner: macos-15-intel, arch: x64 }
+    runs-on: ${{ matrix.runner }}
+    env:
+      # A skipped runtime suite is a failure: this job builds the runtime.
+      DSH_OPS_REQUIRE_RUNTIME: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # Same pin as ci.yml/release.yml; the vendored crates need edition 2024.
+          toolchain: 1.97.1
+          cache: false
+
+      - run: npm ci
+
+      - name: Build the vendored FastCtx runtime
+        run: cargo build --release --locked --manifest-path vendor/fastctx/Cargo.toml
+
+      - name: Build and stage the native PTC worker
+        run: npm run build:ptc
+
+      - name: Check the staged worker is a darwin-${{ matrix.arch }} Mach-O
+        run: node bin/native-runtime.mjs check --platform darwin-${{ matrix.arch }}
+
+      - name: Resolve the shell ladder (expects the OS bash rung)
+        run: |
+          node bin/dsh-ops.mjs ladder --json | tee ladder.json
+          node -e 'const l=require("./ladder.json"); if (l.shells.bash.source!=="os") { console.error("expected bash from /bin/bash, got", l.shells.bash); process.exit(1) }'
+
+      - name: Run the gate
+        run: npm run verify
+
+      - name: Pack the plugin
+        run: |
+          npm pack
+          mkdir -p out
+          mv dsh-ops-*.tgz out/
+          cp vendor/fastctx/target/release/fastctx out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-ops-darwin-${{ matrix.arch }}
+          path: out/
+          if-no-files-found: error
