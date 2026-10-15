@@ -485,10 +485,10 @@ await test('the pin table names one upstream release per shell, and nothing is s
   assert.equal(bash?.executableRelativePath, 'bin/bash.exe')
   // The one published layout each archive has, and the store path both sides of
   // the L3 contract compute: `<DSH_HOME>/dsh-ops/shells/<kind>/<version>`. The
-  // DSH_HOME literal is host-shaped because `path.resolve` is what turns a
-  // configured home into an absolute one — a Windows spelling is not an absolute
-  // path on a POSIX host, so the assertion follows the host's own rules.
-  const storeHome = process.platform === 'win32' ? 'C:\\home' : '/home/dsh-ops-test'
+  // DSH_HOME literal goes through the same `path.resolve` the implementation
+  // uses, so the expectation follows the host's own rules — a Windows spelling
+  // is not an absolute path on a POSIX host — without inventing a directory.
+  const storeHome = path.resolve('C:\\home')
   assert.equal(provisionedShellVersionDir({ kind: 'pwsh', version: '7.6.6', env: { DSH_HOME: storeHome } }),
     path.join(storeHome, 'dsh-ops', 'shells', 'pwsh', '7.6.6'))
 })
@@ -1457,6 +1457,16 @@ await test('macOS uses its sealed /bin/bash without the system fallback, and onl
     assert.equal(osOwnedBash('darwin'), '/bin/bash')
     assert.equal(osOwnedBash('linux'), undefined)
     assert.equal(osOwnedBash('win32'), undefined)
+    // The default is the point of this rung: with no `osBash` override at all,
+    // the ladder has to consult `osOwnedBash(platform)` by itself. The explicit
+    // override above would keep passing if that default were dropped, so the
+    // real path is asserted here — where the host actually owns such a bash.
+    if (process.platform === 'darwin') {
+      const byDefault = { bundleRoot: base.bundleRoot, env: base.env, platform: base.platform, arch: base.arch }
+      const owned = resolveShells(config({ allowSystemShellFallback: false }), byDefault).bash
+      assert.equal(owned.source, 'os')
+      assert.equal(owned.file, '/bin/bash')
+    }
   })
 })
 

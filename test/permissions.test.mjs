@@ -43,9 +43,9 @@ await test('owned Modify-only workspace starts real DSH sandbox; three modes and
     // `os.tmpdir()`, so a SIBLING of the workspace is inside that grant: a write
     // there succeeds and proves nothing about the boundary. A `.tmp-` scratch
     // tree in the checkout is outside all of them on every platform, and
-    // `.gitignore` already covers the name.
-    const outside=fs.mkdtempSync(path.join(PACKAGE_ROOT,'.tmp-permission-outside-'))
-    fs.writeFileSync(path.join(outside,'keep.txt'),'outside')
+    // `.gitignore` already covers the name. It is created inside the `try`
+    // below, so a setup failure cannot leave it behind in the checkout.
+    let outside
     fs.writeFileSync(path.join(root,'data.txt'),'before')
     // Strip broad inherited grants only on this test-owned directory. Recreate
     // the actual reported prerequisite: owner + Modify, no WRITE_OWNER.
@@ -54,6 +54,8 @@ await test('owned Modify-only workspace starts real DSH sandbox; three modes and
     const agent={id:'matrix',session:{id:'matrix',mode:'workspace-write',header:{cwd:root},append(){return Promise.resolve()},read(){return []}}}
     agent.ctx=createScope(ctx,agent).ctx
     try {
+      outside=fs.mkdtempSync(path.join(PACKAGE_ROOT,'.tmp-permission-outside-'))
+      fs.writeFileSync(path.join(outside,'keep.txt'),'outside')
       await ctx.plugin(Subprocess); await ctx.plugin(Sandbox,{})
       await ctx.plugin(FileSystem,{})
       await ctx.plugin(inner=>inner.provide('sandboxPolicy',{defaultMode:'workspace-write',resolve:({session})=>({mode:session?.mode ?? agent.session.mode,workspaceRoot:root,sessionId:session?.id ?? agent.session.id})}))
@@ -156,7 +158,7 @@ await test('owned Modify-only workspace starts real DSH sandbox; three modes and
       const full=await ptcCall(ctx,worker,'batch',{root:outside,action:'run',operations:[{op:'copy',path:'keep.txt',to:'full-copy.txt'}]},exec,exec.signal)
       assert.equal(full.status,'completed',JSON.stringify(full))
       assert.equal(fs.readFileSync(path.join(root,'data.txt'),'utf8'),'after-grant')
-    } finally { await shutdown(ctx); fs.rmSync(outside,{recursive:true,force:true}) }
+    } finally { await shutdown(ctx); if (outside !== undefined) fs.rmSync(outside,{recursive:true,force:true}) }
   })
 })
 report('permissions')

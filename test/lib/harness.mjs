@@ -27,13 +27,16 @@ export const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.
  * Resolve one path through every symbolic link, or answer `undefined`.
  *
  * macOS hands out temporary directories under `/var/folders/…`, and `/var` is a
- * link to `/private/var`. Every native worker this plugin hosts refuses to
- * traverse a link (`Workspace root must not resolve through a junction or
- * symlink`, `Links, reparse points and special objects are not traversed`), and
- * that refusal is the security boundary, not a bug to route around. So the
- * suites must seed workspaces under the RESOLVED name: a suite that used the
- * unresolved one would be asserting about a path the plugin is designed to
- * reject, and its failures would say nothing about the plugin.
+ * link to `/private/var`. The native worker canonicalises the workspace ROOT it
+ * is handed (`native/src/lib.rs`: `std::fs::canonicalize`), so a root reached
+ * through a link is fine; what it refuses is a link anywhere in the path it is
+ * asked to operate on — `native/src/file_path.rs` walks an absolute target
+ * component by component and rejects each one that is a link, answering
+ * `Links, reparse points and special objects are not traversed`. That refusal
+ * is the security boundary, not a bug to route around. So a suite must seed
+ * workspaces under the RESOLVED name: a suite that used the unresolved one
+ * would be asserting about a path the worker is designed to reject, and its
+ * failures would say nothing about the plugin.
  * @param {string} value - the path to canonicalise.
  * @returns {string|undefined} the canonical path, or undefined when it cannot be resolved.
  */
@@ -48,7 +51,12 @@ function canonical(value) {
 const home = process.env.DSH_HOME ?? ''
 const realTmp = canonical(tmpdir())
 const realHome = home === '' ? undefined : canonical(path.resolve(home))
-if (realHome === undefined || realTmp === undefined || !realHome.startsWith(realTmp)) {
+// Compare with the separator: a bare prefix test would let a sibling such as
+// `/private/var/folders-other` pass for a child of `/private/var/folders`.
+const tempPrefix = realTmp === path.sep ? path.sep : `${realTmp}${path.sep}`
+const inTemp = realHome !== undefined && realTmp !== undefined
+  && (realHome === realTmp || realHome.startsWith(tempPrefix))
+if (!inTemp) {
   console.error(
     'dsh-ops test: refusing to run with DSH_HOME pointing outside the temporary directory '
     + `(${home === '' ? 'unset' : home}). Run the suites through \`node test/run.mjs\`, which `
@@ -87,11 +95,11 @@ export { assert }
  * Create a directory under the runner's temporary home that is removed when the
  * body resolves.
  *
- * The directory is canonicalised even though `TEST_HOME` already is: a suite
- * hands this path straight to a native worker as its workspace root, and a
- * platform whose temporary root is itself reached through a link (macOS:
- * `/var` → `/private/var`) would otherwise have every one of those calls
- * refused for a reason that has nothing to do with what the suite is testing.
+ * The directory is canonicalised even though `TEST_HOME` already is: suites
+ * build absolute targets from it, and the native worker refuses any target whose
+ * components include a link — on macOS that is every path under
+ * `/var/folders/…`, because `/var` is a link to `/private/var`. Without this
+ * the refusals would say nothing about what the suite is testing.
  * @param {string} prefix - directory-name infix, for readable leftovers.
  * @param {(dir: string) => unknown | Promise<unknown>} body - the work.
  * @returns {Promise<unknown>} whatever the body returned.

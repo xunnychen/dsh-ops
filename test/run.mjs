@@ -64,9 +64,9 @@ const started = Date.now()
 
 for (const suite of selected) {
   // Canonical, not merely created: on macOS `tmpdir()` itself is a symlinked
-  // path (`/var` → `/private/var`) and every suite that hands its temporary
-  // workspace to a native worker has to hand it the resolved name. See the
-  // note on `canonical()` in `test/lib/harness.mjs`.
+  // path (`/var` → `/private/var`), and the native worker refuses any target
+  // whose components include a link. See the note on `canonical()` in
+  // `test/lib/harness.mjs`.
   const home = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'dsh-ops-test-home-')))
   const label = path.basename(suite)
   console.log(`\n=== ${label}`)

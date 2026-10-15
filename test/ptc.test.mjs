@@ -219,12 +219,14 @@ try {
   // fixture made under `os.tmpdir()` is INSIDE that grant: the removal below
   // would be permitted and the denial assertion would be proving nothing. A
   // `.tmp-*` scratch tree in the checkout is outside all of them, and
-  // `.gitignore` already covers the name.
-  const outside = fs.mkdtempSync(path.join(PACKAGE_ROOT,'.tmp-ops-outside-'))
-  const external = path.join(outside,'protected.txt'); fs.writeFileSync(external,'keep')
+  // `.gitignore` already covers the name. It is created inside the `try`, so a
+  // setup failure cannot leave it behind in the checkout.
+  let outside, external
   try {
     await real.plugin(Subprocess)
     await real.plugin(Sandbox, {})
+    outside = fs.mkdtempSync(path.join(PACKAGE_ROOT,'.tmp-ops-outside-'))
+    external = path.join(outside,'protected.txt'); fs.writeFileSync(external,'keep')
     const agent = { session: {id:'real-ptc',mode:'workspace-write',header:{cwd:dir}} }
     await real.plugin(inner => { inner.provide('sandboxPolicy',{resolve:({session})=>({mode:session.mode,workspaceRoot:dir,sessionId:session.id})}) })
     write('real-source','native')
@@ -238,13 +240,15 @@ try {
     assert.deepEqual(fs.readdirSync(path.join(dir,'.dsh-ops')).sort(),beforeStore)
     agent.session.mode='workspace-write'
     const denied=await call('batch',{root:outside,action:'run',operations:[{op:'remove',path:'protected.txt'}]})
-    // Denied — but WHICH layer answers first is a platform fact. The plugin's own
-    // preflight refuses a root outside the authorized workspace and reports it as
-    // `rejected`; where the platform grant is narrower than that preflight the
-    // request instead reaches the worker, whose sandbox refusal arrives as
-    // `error`. Both carry POLICY_DENIED, and neither may touch the file.
-    assert.notEqual(denied.status,'completed',JSON.stringify(denied))
+    // The plugin's own preflight owns this root: it is outside the workspace and
+    // outside the platform temporary areas the preflight also allows, so the
+    // call is refused before any worker starts, on every platform. Hence the
+    // preflight shape (`rejected`) rather than the worker's `error` — and it is
+    // asserted exactly, so a preflight that stopped refusing this root would go
+    // red here instead of being quietly caught by a later layer.
+    assert.equal(denied.status,'rejected',JSON.stringify(denied))
     assert.equal(denied.error.code,'POLICY_DENIED',JSON.stringify(denied))
+    assert.equal(denied.error.phase,'preflight',JSON.stringify(denied))
     assert.ok(fs.existsSync(external))
     agent.session.mode='danger-full-access'
     const unrestricted=await call('batch',{root:outside,action:'run',operations:[{op:'remove',path:'protected.txt'}]})
@@ -258,5 +262,5 @@ try {
     fs.cpSync(runtime,path.join(staged,'runtime',`${process.platform}-${process.arch}`),{recursive:true})
     assert.ok(resolveWorker({}, {packageRoot:staged}).startsWith(staged))
     console.log('ok: original DSH native sandbox, readonly pages, outside-root denial and full-access outside-root execution')
-  } finally { await real.fiber.dispose(); fs.rmSync(outside,{recursive:true,force:true}) }
+  } finally { await real.fiber.dispose(); if (outside !== undefined) fs.rmSync(outside,{recursive:true,force:true}) }
 } finally { fs.rmSync(dir, { recursive: true, force: true }) }
