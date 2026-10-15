@@ -39,14 +39,14 @@ jobs:
       # A skipped runtime suite is a failure: this job builds the runtime.
       DSH_OPS_REQUIRE_RUNTIME: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7.1.0
         with:
-          node-version: '24'
+          node-version: '24.18.0'
           cache: npm
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           # Same pin as ci.yml/release.yml; the vendored crates need edition 2024.
           toolchain: 1.97.1
